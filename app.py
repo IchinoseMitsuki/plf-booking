@@ -167,11 +167,23 @@ now_sh = datetime.now(shanghai_tz)
 st.markdown(f"## 🎸 PLF 排练室预约周表 `v2.0`")
 st.caption(f"数据实时同步自 Google Sheets | 当前时间: {now_sh.strftime('%Y-%m-%d %H:%M')}")
 
-# 计算日期
+# --- 修正后的动态日期逻辑 ---
 today = now_sh
-monday = today - timedelta(days=today.weekday())
-week_dates = [f"{(monday + timedelta(days=i)).strftime('%Y-%m-%d')} ({DAYS[i]})" for i in range(7)]
+weekday = today.weekday()  # 获取今天是周几 (0是周一, 5是周六, 6是周日)
 
+# 判断：周一(0)到周五(4)显示本周；周六(5)及以后显示从今天开始的7天
+if weekday < 5:
+    start_date = today - timedelta(days=weekday)
+else:
+    start_date = today
+
+# 生成动态日期列表
+week_dates = []
+for i in range(7):
+    d = start_date + timedelta(days=i)
+    date_str = d.strftime('%Y-%m-%d')
+    day_name = DAYS[d.weekday()]  # 自动匹配对应的星期文字
+    week_dates.append(f"{date_str} ({day_name})")
 # 5. 构建后台数据矩阵 (逻辑保持一致)
 real_matrix = pd.DataFrame(index=TIME_RANGES, columns=DAYS)
 for i, d_str in enumerate(week_dates):
@@ -301,4 +313,5 @@ with t3:
     else:
 
         st.info("🔒 详细清单目前仅对管理员开放。")
+
 
