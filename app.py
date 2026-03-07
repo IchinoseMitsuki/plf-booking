@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import hashlib
 import gspread
+import pytz
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime, timedelta
 
@@ -161,11 +162,13 @@ with st.sidebar:
             st.error("密码错误")
 
 # 4. 标题与状态
+shanghai_tz = pytz.timezone('Asia/Shanghai')
+now_sh = datetime.now(shanghai_tz)
 st.markdown(f"## 🎸 PLF 排练室预约周表 `v2.0`")
-st.caption(f"数据实时同步自 Google Sheets | 当前时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+st.caption(f"数据实时同步自 Google Sheets | 当前时间: {now_sh.strftime('%Y-%m-%d %H:%M')}")
 
 # 计算日期
-today = datetime.now()
+today = now_sh
 monday = today - timedelta(days=today.weekday())
 week_dates = [f"{(monday + timedelta(days=i)).strftime('%Y-%m-%d')} ({DAYS[i]})" for i in range(7)]
 
@@ -298,3 +301,4 @@ with t3:
     else:
 
         st.info("🔒 详细清单目前仅对管理员开放。")
+
