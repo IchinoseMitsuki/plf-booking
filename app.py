@@ -77,16 +77,24 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# Google Sheets 配置 (保持原样)
+# Google Sheets 配置 (适配云端 Secrets 版)
 @st.cache_resource
 def init_spreadsheet():
+    # 定义访问权限范围
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
     try:
-        creds = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
+        # 【核心修改】：从 Streamlit Secrets 中读取你刚才填写的配置
+        creds_info = st.secrets["gcp_service_account"]
+        
+        # 使用 from_json_keyfile_dict 这种方式来解析 Secrets 里的内容
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_info, scope)
         client = gspread.authorize(creds)
+        
+        # 打开你的 Google 表格
         sheet = client.open("PLF_Booking").sheet1 
         return sheet
     except Exception as e:
+        # 如果连接失败，会在网页上显示具体的错误原因
         st.error(f"无法连接到 Google Sheets: {e}")
         return None
 
@@ -288,4 +296,5 @@ with t3:
                 st.success("已清空")
                 st.rerun()
     else:
+
         st.info("🔒 详细清单目前仅对管理员开放。")
