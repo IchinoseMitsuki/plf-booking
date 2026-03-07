@@ -164,7 +164,7 @@ with st.sidebar:
 # 4. 标题与状态
 shanghai_tz = pytz.timezone('Asia/Shanghai')
 now_sh = datetime.now(shanghai_tz)
-st.markdown(f"## 🎸 PLF 排练室预约周表 `v2.0`")
+st.markdown(f"## 🎸 PLF 排练室预约周表 `v2.0.1`")
 st.caption(f"数据实时同步自 Google Sheets | 当前时间: {now_sh.strftime('%Y-%m-%d %H:%M')}")
 
 # --- 修正后的动态日期逻辑 ---
@@ -313,5 +313,6 @@ with t3:
     else:
 
         st.info("🔒 详细清单目前仅对管理员开放。")
+
 
 
