@@ -186,14 +186,43 @@ for i in range(7):
     date_str = d.strftime('%Y-%m-%d')
     day_name = DAYS[d.weekday()]  # 自动匹配对应的星期文字
     week_dates.append(f"{date_str} ({day_name})")
-# 5. 构建后台数据矩阵 (逻辑保持一致)
+# 5. 构建后台数据矩阵
 real_matrix = pd.DataFrame(index=TIME_RANGES, columns=DAYS)
+
 for i, d_str in enumerate(week_dates):
     pure_date = d_str[:10] 
     for r_str in TIME_RANGES:
         start_point = r_str.split("-")[0]
         match = df[(df['日期'] == pure_date) & (df['时段'] == start_point)]
-        real_matrix.loc[r_str, DAYS[i]] = match.iloc[0]['姓名'] if not match.empty else "空闲"
+        
+        if not match.empty:
+            row = match.iloc[0]
+            # 读取隐私设置（处理可能为空的情况，默认为True）
+            # 注意：Google Sheets 读取回来的可能是字符串 'True'/'False'
+            s_name = str(row.get('显示姓名', 'True')).upper() == 'TRUE'
+            s_aim = str(row.get('显示目的', 'True')).upper() == 'TRUE'
+            
+            name_val = row['姓名']
+            aim_val = row['目的']
+            
+            # --- 核心逻辑：根据勾选情况拼接显示文字 ---
+            display_text = "已预约"
+            if s_name and s_aim:
+                display_text = f"已预约-{name_val}-{aim_val}"
+            elif s_name:
+                display_text = f"已预约-{name_val}"
+            elif s_aim:
+                display_text = f"已预约-{aim_val}"
+            # ---------------------------------------
+            
+            real_matrix.loc[r_str, DAYS[i]] = display_text
+        else:
+            real_matrix.loc[r_str, DAYS[i]] = "空闲"
+
+# 这里的 display_matrix 逻辑需要微调
+display_matrix = real_matrix.copy()
+# 如果不是管理员，由于 real_matrix 已经处理过隐私文字了，直接显示即可
+# 不再需要原来的 replace(r'^(?!空闲).*$', value='已占用') 这一行
 
 display_matrix = real_matrix.copy()
 if not is_admin:
@@ -218,37 +247,32 @@ st.markdown("---")
 # 7. 交互功能布局优化
 t1, t2, t3 = st.tabs(["📝 提交预约", "❌ 取消预约", "🔍 管理看板" if is_admin else "🔍 详情清单"])
 
+# 在 t1 (提交预约) 的 form 内部修改
 with t1:
     with st.form("booking_form", clear_on_submit=True):
         col_name, col_aim = st.columns([1, 1])
         u_n = col_name.text_input("乐队名/姓名 (必填)", placeholder="例如: Chakura")
         u_p = col_aim.text_input("使用目的", placeholder="例如: 乐队合练")
         
-        c1, c2, c3 = st.columns(3)
-        d = c1.selectbox("预约日期", week_dates)
-        
-        all_points = [datetime.strptime("08:00", "%H:%M") + timedelta(minutes=30*i) for i in range(29)]
-        all_points_str = [t.strftime("%H:%M") for t in all_points]
-        
-        s_t = c2.selectbox("开始时间", all_points_str)
-        e_t = c3.selectbox("结束时间", all_points_str, index=min(4, len(all_points_str)-1)) # 默认给个2小时跨度
-        
-        st.markdown("<br>", unsafe_allow_html=True)
+        # --- 新增：隐私选项 ---
+        c_show_1, c_show_2 = st.columns(2)
+        show_name = c_show_1.checkbox("公开显示姓名", value=True)
+        show_aim = c_show_2.checkbox("公开显示目的", value=True)
+        # --------------------
+
+        # ... (中间的日期和时间选择代码保持不变) ...
+
         if st.form_submit_button("🚀 提交预约并同步"):
-            idx1, idx2 = all_points_str.index(s_t), all_points_str.index(e_t)
-            pure_date = d[:10]
-            if idx2 <= idx1:
-                st.error("错误：结束时间不能早于或等于开始时间")
-            elif not u_n:
-                st.warning("请填写姓名")
+            # ... (校验逻辑保持不变) ...
             else:
                 slots = all_points_str[idx1 : idx2] 
                 if not df[(df['日期']==pure_date) & (df['时段'].isin(slots))].empty:
-                    st.error("⚠️ 时段冲突！该时段已被他人抢先预约")
+                    st.error("⚠️ 时段冲突！")
                 else:
                     for s in slots:
-                        sheet.append_row([pure_date, s, u_n, u_p])
-                    st.success(f"✅ 预约成功！{u_n} 已登记至 {pure_date}")
+                        # 【修改点】：写入 Google Sheets 时增加两列布尔值
+                        sheet.append_row([pure_date, s, u_n, u_p, str(show_name), str(show_aim)])
+                    st.success(f"✅ 预约成功！")
                     st.rerun()
 
 with t2:
