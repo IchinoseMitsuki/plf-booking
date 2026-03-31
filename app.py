@@ -197,34 +197,27 @@ for i, d_str in enumerate(week_dates):
         
         if not match.empty:
             row = match.iloc[0]
-            # 读取隐私设置（处理可能为空的情况，默认为True）
-            # 注意：Google Sheets 读取回来的可能是字符串 'True'/'False'
+            # 获取隐私设置，注意处理旧数据（没有这两列的情况）
+            # 我们假设旧数据默认显示
             s_name = str(row.get('显示姓名', 'True')).upper() == 'TRUE'
             s_aim = str(row.get('显示目的', 'True')).upper() == 'TRUE'
             
-            name_val = row['姓名']
-            aim_val = row['目的']
-            
-            # --- 核心逻辑：根据勾选情况拼接显示文字 ---
-            display_text = "已预约"
+            # 基础文字
+            res = "已预约"
+            # 根据逻辑拼接
             if s_name and s_aim:
-                display_text = f"已预约-{name_val}-{aim_val}"
+                res = f"已预约-{row['姓名']}-{row['目的']}"
             elif s_name:
-                display_text = f"已预约-{name_val}"
+                res = f"已预约-{row['姓名']}"
             elif s_aim:
-                display_text = f"已预约-{aim_val}"
-            # ---------------------------------------
+                res = f"已预约-{row['目的']}"
             
-            real_matrix.loc[r_str, DAYS[i]] = display_text
+            real_matrix.loc[r_str, DAYS[i]] = res
         else:
             real_matrix.loc[r_str, DAYS[i]] = "空闲"
 
-# 这里的 display_matrix 逻辑需要微调
 display_matrix = real_matrix.copy()
-# 如果不是管理员，由于 real_matrix 已经处理过隐私文字了，直接显示即可
-# 不再需要原来的 replace(r'^(?!空闲).*$', value='已占用') 这一行
-
-display_matrix = real_matrix.copy()
+# 注意：这里不再需要原先那种针对非管理员的 replace('已占用') 逻辑了，因为上面已经处理好了
 if not is_admin:
     display_matrix = display_matrix.replace(to_replace=r'^(?!空闲).*$', value='已占用', regex=True)
 
@@ -254,23 +247,34 @@ with t1:
         u_n = col_name.text_input("乐队名/姓名 (必填)", placeholder="例如: Chakura")
         u_p = col_aim.text_input("使用目的", placeholder="例如: 乐队合练")
         
-        # --- 新增：隐私选项 ---
+        # 新增隐私选项
         c_show_1, c_show_2 = st.columns(2)
         show_name = c_show_1.checkbox("公开显示姓名", value=True)
         show_aim = c_show_2.checkbox("公开显示目的", value=True)
-        # --------------------
-
-        # ... (中间的日期和时间选择代码保持不变) ...
-
+        
+        c1, c2, c3 = st.columns(3)
+        d = c1.selectbox("预约日期", week_dates)
+        
+        all_points = [datetime.strptime("08:00", "%H:%M") + timedelta(minutes=30*i) for i in range(29)]
+        all_points_str = [t.strftime("%H:%M") for t in all_points]
+        
+        s_t = c2.selectbox("开始时间", all_points_str)
+        e_t = c3.selectbox("结束时间", all_points_str, index=min(4, len(all_points_str)-1))
+        
         if st.form_submit_button("🚀 提交预约并同步"):
-            # ... (校验逻辑保持不变) ...
+            idx1, idx2 = all_points_str.index(s_t), all_points_str.index(e_t)
+            pure_date = d[:10]
+            if idx2 <= idx1:
+                st.error("错误：结束时间不能早于或等于开始时间")
+            elif not u_n:
+                st.warning("请填写姓名")
             else:
                 slots = all_points_str[idx1 : idx2] 
                 if not df[(df['日期']==pure_date) & (df['时段'].isin(slots))].empty:
                     st.error("⚠️ 时段冲突！")
                 else:
                     for s in slots:
-                        # 【修改点】：写入 Google Sheets 时增加两列布尔值
+                        # 写入 6 列数据
                         sheet.append_row([pure_date, s, u_n, u_p, str(show_name), str(show_aim)])
                     st.success(f"✅ 预约成功！")
                     st.rerun()
