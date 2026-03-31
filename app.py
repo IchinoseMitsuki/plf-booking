@@ -297,16 +297,17 @@ with t2:
         if user_df.empty:
             st.info("未找到预约记录，请检查姓名是否输入正确。")
         else:
-            # 逻辑保持原样，仅美化显示
+            # 1. 数据准备
             user_df['time_dt'] = pd.to_datetime(user_df['时段'], format='%H:%M', errors='coerce')
             user_df = user_df.dropna(subset=['time_dt']).sort_values(by=['日期', 'time_dt'])
             
-            # (合并逻辑保持原样)
+            # 2. 合并连续时段逻辑
             merged_slots = []
             current_group = []
             for i in range(len(user_df)):
                 curr_row = user_df.iloc[i]
-                if not current_group: current_group.append(curr_row)
+                if not current_group:
+                    current_group.append(curr_row)
                 else:
                     last_row = current_group[-1]
                     time_diff = (curr_row['time_dt'] - last_row['time_dt']).total_seconds() / 60
@@ -315,29 +316,47 @@ with t2:
                     else:
                         merged_slots.append(current_group)
                         current_group = [curr_row]
-            merged_slots.append(current_group)
+            if current_group:
+                merged_slots.append(current_group)
 
+            # 3. 构建显示选项字典，用于后续精准匹配
             display_options = []
+            option_to_rows = {} # 建立“选项文字”到“原始数据索引”的映射
+            
             for group in merged_slots:
                 date = group[0]['日期']
                 start_t = group[0]['时段']
                 end_dt = group[-1]['time_dt'] + timedelta(minutes=30)
                 end_t = end_dt.strftime('%H:%M')
-                display_options.append(f"{date} {start_t}-{end_t}")
+                
+                label = f"{date} {start_t}-{end_t}"
+                display_options.append(label)
+                # 记录该大段包含的所有具体 30min 原始行（日期+时段）
+                option_to_rows[label] = [(r['日期'], r['时段']) for r in group]
             
             selected_batches = st.multiselect("选择要取消的时段 (可多选)", display_options)
             
             if st.button("🗑️ 确认撤回选中预约"):
                 if selected_batches:
-                    # 重新读取以确保同步，逻辑保持原样
-                    new_df = df[~((df['姓名'] == u_n_cancel) & (df.apply(lambda x: f"{x['日期']} {x['时段']}" in str(selected_batches), axis=1)))]
+                    # 4. 精准过滤：找出所有待删除的 (日期, 时段) 元组
+                    rows_to_delete = []
+                    for batch in selected_batches:
+                        rows_to_delete.extend(option_to_rows[batch])
+                    
+                    # 5. 生成新数据：排除选中的行
+                    # 逻辑：只要 (日期, 时段) 不在待删列表中，且姓名对得上，就保留
+                    mask = df.apply(lambda x: (x['日期'], x['时段']) in rows_to_delete and x['姓名'] == u_n_cancel, axis=1)
+                    new_df = df[~mask]
+                    
+                    # 6. 同步云端
                     sheet.clear()
                     sheet.append_row(['日期', '时段', '姓名', '目的', '公开姓名', '公开目的'])
                     if not new_df.empty:
-                        sheet.append_rows(new_df.values.tolist())
-                    st.success("已成功撤回。")
+                        # 确保只写回原始 6 列，防止出现多余数据
+                        sheet.append_rows(new_df[['日期', '时段', '姓名', '目的', '公开姓名', '公开目的']].values.tolist())
+                    
+                    st.success(f"已成功撤回共 {len(selected_batches)} 个预约时段。")
                     st.rerun()
-
 with t3:
     if is_admin:
         st.markdown("### 🔐 全量预约清单")
