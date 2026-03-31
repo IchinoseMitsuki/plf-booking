@@ -258,26 +258,34 @@ with t1:
         u_n = col_name.text_input("乐队名/姓名 (必填)", placeholder="例如: Chakura")
         u_p = col_aim.text_input("使用目的", placeholder="例如: 乐队合练")
         
-        # 新增隐私选项
+        # 隐私选项
         c_p1, c_p2 = st.columns(2)
         show_name = c_p1.checkbox("公开姓名/乐队名", value=True)
         show_aim = c_p2.checkbox("公开使用目的", value=True)
         
         c1, c2, c3 = st.columns(3)
         d = c1.selectbox("预约日期", week_dates)
-        # ... (时间选择逻辑保持原样) ...
+        
+        all_points_str = [f"{h:02d}:{m:02d}" for h in range(8, 22) for m in (0, 30)]
+        s_t = c2.selectbox("开始时间", all_points_str)
+        e_t = c3.selectbox("结束时间", all_points_str, index=min(4, len(all_points_str)-1))
         
         if st.form_submit_button("🚀 提交预约并同步"):
-            # ... (校验逻辑保持原样) ...
+            idx1, idx2 = all_points_str.index(s_t), all_points_str.index(e_t)
+            pure_date = d[:10]
+            if idx2 <= idx1:
+                st.error("错误：结束时间不能早于或等于开始时间")
+            elif not u_n:
+                st.warning("请填写姓名")
             else:
                 slots = all_points_str[idx1 : idx2] 
                 if not df[(df['日期']==pure_date) & (df['时段'].isin(slots))].empty:
-                    st.error("⚠️ 时段冲突！")
+                    st.error("⚠️ 时段冲突！该时段已被他人抢先预约")
                 else:
                     for s in slots:
-                        # 写入 6 列：日期, 时段, 姓名, 目的, 公开姓名, 公开目的
+                        # 写入 6 列数据
                         sheet.append_row([pure_date, s, u_n, u_p, str(show_name), str(show_aim)])
-                    st.success(f"✅ 预约成功！")
+                    st.success(f"✅ 预约成功！{u_n} 已登记至 {pure_date}")
                     st.rerun()
 
 with t2:
