@@ -198,25 +198,26 @@ for i, d_str in enumerate(week_dates):
         
         if not match.empty:
             row = match.iloc[0]
-            color_matrix.loc[r_str, DAYS[i]] = row['姓名'] # 存原始名用于算颜色
+            color_matrix.loc[r_str, DAYS[i]] = row['姓名'] 
             
-            # 读取隐私设置 (处理可能不存在该列的旧数据)
-            s_name = str(row.get('显示姓名', 'True')).upper() == 'TRUE'
-            s_aim = str(row.get('显示目的', 'True')).upper() == 'TRUE'
-            
-            # 隐私拼接逻辑
-            display_text = "已预约"
-            if s_name and s_aim:
-                display_text = f"已预约-{row['姓名']}-{row['目的']}"
-            elif s_name:
-                display_text = f"已预约-{row['姓名']}"
-            elif s_aim:
-                display_text = f"已预约-{row['目的']}"
+            # --- 核心修改：如果是管理员，直接显示完整信息 ---
+            if is_admin:
+                display_text = f"管理员可见: {row['姓名']}-{row['目的']}"
+            else:
+                # 如果是普通同学，执行隐私遮蔽逻辑
+                s_name = str(row.get('显示姓名', 'True')).upper() == 'TRUE'
+                s_aim = str(row.get('显示目的', 'True')).upper() == 'TRUE'
+                
+                display_text = "已预约"
+                if s_name and s_aim:
+                    display_text = f"已预约-{row['姓名']}-{row['目的']}"
+                elif s_name:
+                    display_text = f"已预约-{row['姓名']}"
+                elif s_aim:
+                    display_text = f"已预约-{row['目的']}"
+            # --------------------------------------------
             
             real_matrix.loc[r_str, DAYS[i]] = display_text
-        else:
-            color_matrix.loc[r_str, DAYS[i]] = "空闲"
-            real_matrix.loc[r_str, DAYS[i]] = "空闲"
 
 # --- 关键修正：定义 display_matrix ---
 display_matrix = real_matrix.copy()
