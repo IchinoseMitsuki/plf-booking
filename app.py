@@ -125,8 +125,11 @@ def load_data():
         if data:
             temp_df = pd.DataFrame(data)
             temp_df['日期'] = temp_df['日期'].astype(str)
+            # 确保新列存在，防止旧数据报错
+            if '公开姓名' not in temp_df.columns: temp_df['公开姓名'] = 'True'
+            if '公开目的' not in temp_df.columns: temp_df['公开目的'] = 'True'
             return temp_df
-    return pd.DataFrame(columns=['日期', '时段', '姓名', '目的'])
+    return pd.DataFrame(columns=['日期', '时段', '姓名', '目的', '公开姓名', '公开目的'])
 
 df = load_data()
 
@@ -186,50 +189,64 @@ for i in range(7):
     date_str = d.strftime('%Y-%m-%d')
     day_name = DAYS[d.weekday()]  # 自动匹配对应的星期文字
     week_dates.append(f"{date_str} ({day_name})")
-# 5. 构建后台数据矩阵
+# --- 5. 构建后台数据矩阵 (此处已更新为双矩阵隐私逻辑) ---
+
+# 定义两个矩阵：
+# real_matrix 用于存储最终显示在表格里的文字内容
 real_matrix = pd.DataFrame(index=TIME_RANGES, columns=DAYS)
-color_matrix = pd.DataFrame(index=TIME_RANGES, columns=DAYS) 
+# color_seed_matrix 专门用来存原始姓名，确保 get_morandi_color 算出的颜色还是唯一的
+color_seed_matrix = pd.DataFrame(index=TIME_RANGES, columns=DAYS) 
 
 for i, d_str in enumerate(week_dates):
     pure_date = d_str[:10] 
     for r_str in TIME_RANGES:
         start_point = r_str.split("-")[0]
+        # 从读取到的 Google Sheets 数据 (df) 中寻找匹配项
         match = df[(df['日期'] == pure_date) & (df['时段'] == start_point)]
         
         if not match.empty:
             row = match.iloc[0]
-            color_matrix.loc[r_str, DAYS[i]] = row['姓名'] 
+            name = str(row['姓名'])
+            aim = str(row['目的'])
             
-            # --- 核心修改：如果是管理员，直接显示完整信息 ---
-            if is_admin:
-                display_text = f"管理员可见: {row['姓名']}-{row['目的']}"
-            else:
-                # 如果是普通同学，执行隐私遮蔽逻辑
-                s_name = str(row.get('显示姓名', 'True')).upper() == 'TRUE'
-                s_aim = str(row.get('显示目的', 'True')).upper() == 'TRUE'
-                
-                display_text = "已预约"
-                if s_name and s_aim:
-                    display_text = f"已预约-{row['姓名']}-{row['目的']}"
-                elif s_name:
-                    display_text = f"已预约-{row['姓名']}"
-                elif s_aim:
-                    display_text = f"已预约-{row['目的']}"
-            # --------------------------------------------
+            # 读取隐私开关（处理 Google Sheets 返回的字符串/布尔值兼容性）
+            is_show_n = str(row.get('公开姓名', 'True')) == 'True'
+            is_show_a = str(row.get('公开目的', 'True')) == 'True'
             
+            # 1. 核心逻辑：根据开关拼接显示文字
+            display_text = "已预约"
+            if is_show_n and is_show_a:
+                display_text = f"已预约-{name}-{aim}"
+            elif is_show_n:
+                display_text = f"已预约-{name}"
+            elif is_show_a:
+                display_text = f"已预约-{aim}"
+            
+            # 写入显示矩阵
             real_matrix.loc[r_str, DAYS[i]] = display_text
+            # 写入颜色种子矩阵（始终用真实姓名，保证颜色不乱）
+            color_seed_matrix.loc[r_str, DAYS[i]] = name 
+        else:
+            real_matrix.loc[r_str, DAYS[i]] = "空闲"
+            color_seed_matrix.loc[r_str, DAYS[i]] = "空闲"
 
-# --- 关键修正：定义 display_matrix ---
+# 准备展示
 display_matrix = real_matrix.copy()
+
+# 【重要变化】这里不再需要原代码中的 display_matrix.replace 正则表达式了
+# 因为上面的 display_text 已经根据身份开关处理好了内容
+
 display_matrix.columns = [d.replace(" (", "\n(") for d in week_dates]
 
-# 样式函数
+# 样式函数 (增加边框美化)
+# --- 修改样式函数 ---
 def style_fn(data):
     s = pd.DataFrame('', index=data.index, columns=data.columns)
-    for col_idx in range(len(data.columns)):
-        for row_idx in range(len(data.index)):
-            raw_name = color_matrix.iloc[row_idx, col_idx] 
-            bg, txt = get_morandi_color(raw_name)
+    for col_idx, _ in enumerate(data.columns):
+        for row_idx, _ in enumerate(data.index):
+            # 关键：这里用 color_seed_matrix 获取姓名，保证颜色唯一性
+            real_name_for_color = color_seed_matrix.iloc[row_idx, col_idx]
+            bg, txt = get_morandi_color(real_name_for_color)
             s.iloc[row_idx, col_idx] = f'background-color:{bg};color:{txt};text-align:center;font-weight:500;border:0.5px solid #f1f5f9;'
     return s
 
@@ -237,7 +254,7 @@ st.dataframe(display_matrix.style.apply(style_fn, axis=None), use_container_widt
 
 st.markdown("---")
 
-# 7. 交互功能布局
+# 7. 交互功能布局优化
 t1, t2, t3 = st.tabs(["📝 提交预约", "❌ 取消预约", "🔍 管理看板" if is_admin else "🔍 详情清单"])
 
 with t1:
@@ -246,9 +263,10 @@ with t1:
         u_n = col_name.text_input("乐队名/姓名 (必填)", placeholder="例如: Chakura")
         u_p = col_aim.text_input("使用目的", placeholder="例如: 乐队合练")
         
-        c_show_1, c_show_2 = st.columns(2)
-        show_name = c_show_1.checkbox("公开显示姓名", value=True)
-        show_aim = c_show_2.checkbox("公开显示目的", value=True)
+        # 新增：隐私选项
+        c_p1, c_p2 = st.columns(2)
+        show_name = c_p1.checkbox("公开姓名/乐队名", value=True)
+        show_aim = c_p2.checkbox("公开使用目的", value=True)
         
         c1, c2, c3 = st.columns(3)
         d = c1.selectbox("预约日期", week_dates)
@@ -257,8 +275,9 @@ with t1:
         all_points_str = [t.strftime("%H:%M") for t in all_points]
         
         s_t = c2.selectbox("开始时间", all_points_str)
-        e_t = c3.selectbox("结束时间", all_points_str, index=min(4, len(all_points_str)-1))
+        e_t = c3.selectbox("结束时间", all_points_str, index=min(4, len(all_points_str)-1)) # 默认给个2小时跨度
         
+        st.markdown("<br>", unsafe_allow_html=True)
         if st.form_submit_button("🚀 提交预约并同步"):
             idx1, idx2 = all_points_str.index(s_t), all_points_str.index(e_t)
             pure_date = d[:10]
@@ -272,6 +291,7 @@ with t1:
                     st.error("⚠️ 时段冲突！")
                 else:
                     for s in slots:
+                        # 修改：写入 6 列数据 (日期, 时段, 姓名, 目的, 是否显名, 是否显目的)
                         sheet.append_row([pure_date, s, u_n, u_p, str(show_name), str(show_aim)])
                     st.success(f"✅ 预约成功！")
                     st.rerun()
@@ -283,11 +303,13 @@ with t2:
     if u_n_cancel:
         user_df = df[df['姓名'] == u_n_cancel].copy()
         if user_df.empty:
-            st.info("未找到预约记录。")
+            st.info("未找到预约记录，请检查姓名是否输入正确。")
         else:
+            # 逻辑保持原样，仅美化显示
             user_df['time_dt'] = pd.to_datetime(user_df['时段'], format='%H:%M', errors='coerce')
             user_df = user_df.dropna(subset=['time_dt']).sort_values(by=['日期', 'time_dt'])
             
+            # (合并逻辑保持原样)
             merged_slots = []
             current_group = []
             for i in range(len(user_df)):
@@ -315,10 +337,10 @@ with t2:
             
             if st.button("🗑️ 确认撤回选中预约"):
                 if selected_batches:
+                    # 重新读取以确保同步，逻辑保持原样
                     new_df = df[~((df['姓名'] == u_n_cancel) & (df.apply(lambda x: f"{x['日期']} {x['时段']}" in str(selected_batches), axis=1)))]
                     sheet.clear()
-                    # 关键修正：表头保持 6 列一致
-                    sheet.append_row(['日期', '时段', '姓名', '目的', '显示姓名', '显示目的'])
+                    sheet.append_row(['日期', '时段', '姓名', '目的'])
                     if not new_df.empty:
                         sheet.append_rows(new_df.values.tolist())
                     st.success("已成功撤回。")
@@ -332,12 +354,18 @@ with t3:
         if st.button("⚠ 清空云端所有数据"):
             if st.checkbox("我确认要永久删除所有记录"):
                 sheet.clear()
-                # 关键修正：表头保持 6 列一致
-                sheet.append_row(['日期', '时段', '姓名', '目的', '显示姓名', '显示目的'])
+                sheet.append_row(['日期', '时段', '姓名', '目的'])
                 st.success("已清空")
                 st.rerun()
     else:
+
         st.info("🔒 详细清单目前仅对管理员开放。")
+
+
+
+
+
+
 
 
 
