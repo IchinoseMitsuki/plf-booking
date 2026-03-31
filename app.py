@@ -300,48 +300,35 @@ with t2:
     u_n_cancel = st.text_input("输入预约时的姓名进行核验", key="cancel_name_input")
     
     if u_n_cancel:
+        # 这里建议重新从全局 df 过滤，确保数据最新
         user_df = df[df['姓名'] == u_n_cancel].copy()
         if user_df.empty:
             st.info("未找到预约记录，请检查姓名是否输入正确。")
         else:
-            # 逻辑保持原样，仅美化显示
+            # 转换时间用于排序和显示
             user_df['time_dt'] = pd.to_datetime(user_df['时段'], format='%H:%M', errors='coerce')
             user_df = user_df.dropna(subset=['time_dt']).sort_values(by=['日期', 'time_dt'])
             
-            # (合并逻辑保持原样)
-            merged_slots = []
-            current_group = []
-            for i in range(len(user_df)):
-                curr_row = user_df.iloc[i]
-                if not current_group: current_group.append(curr_row)
-                else:
-                    last_row = current_group[-1]
-                    time_diff = (curr_row['time_dt'] - last_row['time_dt']).total_seconds() / 60
-                    if curr_row['日期'] == last_row['日期'] and time_diff == 30:
-                        current_group.append(curr_row)
-                    else:
-                        merged_slots.append(current_group)
-                        current_group = [curr_row]
-            merged_slots.append(current_group)
-
-            display_options = []
-            for group in merged_slots:
-                date = group[0]['日期']
-                start_t = group[0]['时段']
-                end_dt = group[-1]['time_dt'] + timedelta(minutes=30)
-                end_t = end_dt.strftime('%H:%M')
-                display_options.append(f"{date} {start_t}-{end_t}")
-            
+            # 生成取消选项
+            display_options = [f"{row['日期']} {row['时段']}" for _, row in user_df.iterrows()]
             selected_batches = st.multiselect("选择要取消的时段 (可多选)", display_options)
             
             if st.button("🗑️ 确认撤回选中预约"):
                 if selected_batches:
-                    # 重新读取以确保同步，逻辑保持原样
-                    new_df = df[~((df['姓名'] == u_n_cancel) & (df.apply(lambda x: f"{x['日期']} {x['时段']}" in str(selected_batches), axis=1)))]
+                    # 1. 过滤掉用户想要删除的行
+                    # 我们通过“姓名+日期+时段”联合判断，确保删除准确
+                    new_df = df[~((df['姓名'] == u_n_cancel) & 
+                                 (df.apply(lambda x: f"{x['日期']} {x['时段']}" in selected_batches, axis=1)))]
+                    
+                    # 2. 核心修复：清空并重写完整的 6 列标题
                     sheet.clear()
-                    sheet.append_row(['日期', '时段', '姓名', '目的'])
+                    # --- 注意：这里必须是 6 列，且名字与 load_data 里的一致 ---
+                    sheet.append_row(['日期', '时段', '姓名', '目的', '公开姓名', '公开目的'])
+                    
+                    # 3. 写回剩余数据
                     if not new_df.empty:
                         sheet.append_rows(new_df.values.tolist())
+                    
                     st.success("已成功撤回。")
                     st.rerun()
 
