@@ -188,7 +188,7 @@ for i in range(7):
     week_dates.append(f"{date_str} ({day_name})")
 # 5. 构建后台数据矩阵
 real_matrix = pd.DataFrame(index=TIME_RANGES, columns=DAYS)
-color_matrix = pd.DataFrame(index=TIME_RANGES, columns=DAYS) # 新增：专门存姓名算颜色
+color_matrix = pd.DataFrame(index=TIME_RANGES, columns=DAYS) 
 
 for i, d_str in enumerate(week_dates):
     pure_date = d_str[:10] 
@@ -198,13 +198,13 @@ for i, d_str in enumerate(week_dates):
         
         if not match.empty:
             row = match.iloc[0]
-            # 记录原始姓名，用于生成颜色
-            color_matrix.loc[r_str, DAYS[i]] = row['姓名']
+            color_matrix.loc[r_str, DAYS[i]] = row['姓名'] # 存原始名用于算颜色
             
-            # 处理隐私显示逻辑
+            # 读取隐私设置 (处理可能不存在该列的旧数据)
             s_name = str(row.get('显示姓名', 'True')).upper() == 'TRUE'
             s_aim = str(row.get('显示目的', 'True')).upper() == 'TRUE'
             
+            # 隐私拼接逻辑
             display_text = "已预约"
             if s_name and s_aim:
                 display_text = f"已预约-{row['姓名']}-{row['目的']}"
@@ -217,38 +217,34 @@ for i, d_str in enumerate(week_dates):
         else:
             color_matrix.loc[r_str, DAYS[i]] = "空闲"
             real_matrix.loc[r_str, DAYS[i]] = "空闲"
-# 注意：这里不再需要原先那种针对非管理员的 replace('已占用') 逻辑了，因为上面已经处理好了
-if not is_admin:
-    display_matrix = display_matrix.replace(to_replace=r'^(?!空闲).*$', value='已占用', regex=True)
 
+# --- 关键修正：定义 display_matrix ---
+display_matrix = real_matrix.copy()
 display_matrix.columns = [d.replace(" (", "\n(") for d in week_dates]
 
-# 样式函数 (增加边框美化)
+# 样式函数
 def style_fn(data):
     s = pd.DataFrame('', index=data.index, columns=data.columns)
-    for col_idx, col_name in enumerate(data.columns):
-        for row_idx, row_name in enumerate(data.index):
-            # 【关键修改】：使用 color_matrix 里的原始姓名来获取颜色
+    for col_idx in range(len(data.columns)):
+        for row_idx in range(len(data.index)):
             raw_name = color_matrix.iloc[row_idx, col_idx] 
-            
             bg, txt = get_morandi_color(raw_name)
             s.iloc[row_idx, col_idx] = f'background-color:{bg};color:{txt};text-align:center;font-weight:500;border:0.5px solid #f1f5f9;'
     return s
+
 st.dataframe(display_matrix.style.apply(style_fn, axis=None), use_container_width=True, height=600)
 
 st.markdown("---")
 
-# 7. 交互功能布局优化
+# 7. 交互功能布局
 t1, t2, t3 = st.tabs(["📝 提交预约", "❌ 取消预约", "🔍 管理看板" if is_admin else "🔍 详情清单"])
 
-# 在 t1 (提交预约) 的 form 内部修改
 with t1:
     with st.form("booking_form", clear_on_submit=True):
         col_name, col_aim = st.columns([1, 1])
         u_n = col_name.text_input("乐队名/姓名 (必填)", placeholder="例如: Chakura")
         u_p = col_aim.text_input("使用目的", placeholder="例如: 乐队合练")
         
-        # 新增隐私选项
         c_show_1, c_show_2 = st.columns(2)
         show_name = c_show_1.checkbox("公开显示姓名", value=True)
         show_aim = c_show_2.checkbox("公开显示目的", value=True)
@@ -275,7 +271,6 @@ with t1:
                     st.error("⚠️ 时段冲突！")
                 else:
                     for s in slots:
-                        # 写入 6 列数据
                         sheet.append_row([pure_date, s, u_n, u_p, str(show_name), str(show_aim)])
                     st.success(f"✅ 预约成功！")
                     st.rerun()
@@ -287,13 +282,11 @@ with t2:
     if u_n_cancel:
         user_df = df[df['姓名'] == u_n_cancel].copy()
         if user_df.empty:
-            st.info("未找到预约记录，请检查姓名是否输入正确。")
+            st.info("未找到预约记录。")
         else:
-            # 逻辑保持原样，仅美化显示
             user_df['time_dt'] = pd.to_datetime(user_df['时段'], format='%H:%M', errors='coerce')
             user_df = user_df.dropna(subset=['time_dt']).sort_values(by=['日期', 'time_dt'])
             
-            # (合并逻辑保持原样)
             merged_slots = []
             current_group = []
             for i in range(len(user_df)):
@@ -321,10 +314,10 @@ with t2:
             
             if st.button("🗑️ 确认撤回选中预约"):
                 if selected_batches:
-                    # 重新读取以确保同步，逻辑保持原样
                     new_df = df[~((df['姓名'] == u_n_cancel) & (df.apply(lambda x: f"{x['日期']} {x['时段']}" in str(selected_batches), axis=1)))]
                     sheet.clear()
-                    sheet.append_row(['日期', '时段', '姓名', '目的'])
+                    # 关键修正：表头保持 6 列一致
+                    sheet.append_row(['日期', '时段', '姓名', '目的', '显示姓名', '显示目的'])
                     if not new_df.empty:
                         sheet.append_rows(new_df.values.tolist())
                     st.success("已成功撤回。")
@@ -338,11 +331,11 @@ with t3:
         if st.button("⚠ 清空云端所有数据"):
             if st.checkbox("我确认要永久删除所有记录"):
                 sheet.clear()
-                sheet.append_row(['日期', '时段', '姓名', '目的'])
+                # 关键修正：表头保持 6 列一致
+                sheet.append_row(['日期', '时段', '姓名', '目的', '显示姓名', '显示目的'])
                 st.success("已清空")
                 st.rerun()
     else:
-
         st.info("🔒 详细清单目前仅对管理员开放。")
 
 
