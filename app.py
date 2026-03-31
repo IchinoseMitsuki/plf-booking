@@ -191,40 +191,39 @@ for i in range(7):
     week_dates.append(f"{date_str} ({day_name})")
 # --- 5. 构建后台数据矩阵 (此处已更新为双矩阵隐私逻辑) ---
 
-# 定义两个矩阵：
-# real_matrix 用于存储最终显示在表格里的文字内容
+# --- 核心矩阵构建逻辑 (修复管理员显示) ---
 real_matrix = pd.DataFrame(index=TIME_RANGES, columns=DAYS)
-# color_seed_matrix 专门用来存原始姓名，确保 get_morandi_color 算出的颜色还是唯一的
 color_seed_matrix = pd.DataFrame(index=TIME_RANGES, columns=DAYS) 
 
 for i, d_str in enumerate(week_dates):
     pure_date = d_str[:10] 
     for r_str in TIME_RANGES:
         start_point = r_str.split("-")[0]
-        # 从读取到的 Google Sheets 数据 (df) 中寻找匹配项
         match = df[(df['日期'] == pure_date) & (df['时段'] == start_point)]
         
         if not match.empty:
             row = match.iloc[0]
             name = str(row['姓名'])
             aim = str(row['目的'])
-            
-            # 读取隐私开关（处理 Google Sheets 返回的字符串/布尔值兼容性）
+            # 读取隐私开关
             is_show_n = str(row.get('公开姓名', 'True')) == 'True'
             is_show_a = str(row.get('公开目的', 'True')) == 'True'
             
-            # 1. 核心逻辑：根据开关拼接显示文字
-            display_text = "已预约"
-            if is_show_n and is_show_a:
-                display_text = f"已预约-{name}-{aim}"
-            elif is_show_n:
-                display_text = f"已预约-{name}"
-            elif is_show_a:
-                display_text = f"已预约-{aim}"
+            # --- 关键修改处：判断身份 ---
+            if is_admin:
+                # 如果是管理员，直接显示全部信息，无需脱敏
+                display_text = f"{name} | {aim}"
+            else:
+                # 如果是普通同学，执行隐私逻辑
+                display_text = "已预约"
+                if is_show_n and is_show_a:
+                    display_text = f"已预约-{name}-{aim}"
+                elif is_show_n:
+                    display_text = f"已预约-{name}"
+                elif is_show_a:
+                    display_text = f"已预约-{aim}"
             
-            # 写入显示矩阵
             real_matrix.loc[r_str, DAYS[i]] = display_text
-            # 写入颜色种子矩阵（始终用真实姓名，保证颜色不乱）
             color_seed_matrix.loc[r_str, DAYS[i]] = name 
         else:
             real_matrix.loc[r_str, DAYS[i]] = "空闲"
