@@ -188,6 +188,7 @@ for i in range(7):
     week_dates.append(f"{date_str} ({day_name})")
 # 5. 构建后台数据矩阵
 real_matrix = pd.DataFrame(index=TIME_RANGES, columns=DAYS)
+color_matrix = pd.DataFrame(index=TIME_RANGES, columns=DAYS) # 新增：专门存姓名算颜色
 
 for i, d_str in enumerate(week_dates):
     pure_date = d_str[:10] 
@@ -197,26 +198,25 @@ for i, d_str in enumerate(week_dates):
         
         if not match.empty:
             row = match.iloc[0]
-            # 获取隐私设置，注意处理旧数据（没有这两列的情况）
-            # 我们假设旧数据默认显示
+            # 记录原始姓名，用于生成颜色
+            color_matrix.loc[r_str, DAYS[i]] = row['姓名']
+            
+            # 处理隐私显示逻辑
             s_name = str(row.get('显示姓名', 'True')).upper() == 'TRUE'
             s_aim = str(row.get('显示目的', 'True')).upper() == 'TRUE'
             
-            # 基础文字
-            res = "已预约"
-            # 根据逻辑拼接
+            display_text = "已预约"
             if s_name and s_aim:
-                res = f"已预约-{row['姓名']}-{row['目的']}"
+                display_text = f"已预约-{row['姓名']}-{row['目的']}"
             elif s_name:
-                res = f"已预约-{row['姓名']}"
+                display_text = f"已预约-{row['姓名']}"
             elif s_aim:
-                res = f"已预约-{row['目的']}"
+                display_text = f"已预约-{row['目的']}"
             
-            real_matrix.loc[r_str, DAYS[i]] = res
+            real_matrix.loc[r_str, DAYS[i]] = display_text
         else:
+            color_matrix.loc[r_str, DAYS[i]] = "空闲"
             real_matrix.loc[r_str, DAYS[i]] = "空闲"
-
-display_matrix = real_matrix.copy()
 # 注意：这里不再需要原先那种针对非管理员的 replace('已占用') 逻辑了，因为上面已经处理好了
 if not is_admin:
     display_matrix = display_matrix.replace(to_replace=r'^(?!空闲).*$', value='已占用', regex=True)
@@ -226,13 +226,14 @@ display_matrix.columns = [d.replace(" (", "\n(") for d in week_dates]
 # 样式函数 (增加边框美化)
 def style_fn(data):
     s = pd.DataFrame('', index=data.index, columns=data.columns)
-    for col_idx, _ in enumerate(data.columns):
-        for row_idx, _ in enumerate(data.index):
-            real_val = real_matrix.iloc[row_idx, col_idx]
-            bg, txt = get_morandi_color(real_val)
+    for col_idx, col_name in enumerate(data.columns):
+        for row_idx, row_name in enumerate(data.index):
+            # 【关键修改】：使用 color_matrix 里的原始姓名来获取颜色
+            raw_name = color_matrix.iloc[row_idx, col_idx] 
+            
+            bg, txt = get_morandi_color(raw_name)
             s.iloc[row_idx, col_idx] = f'background-color:{bg};color:{txt};text-align:center;font-weight:500;border:0.5px solid #f1f5f9;'
     return s
-
 st.dataframe(display_matrix.style.apply(style_fn, axis=None), use_container_width=True, height=600)
 
 st.markdown("---")
