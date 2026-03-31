@@ -171,7 +171,7 @@ with st.sidebar:
 # 4. 标题与状态
 shanghai_tz = pytz.timezone('Asia/Shanghai')
 now_sh = datetime.now(shanghai_tz)
-st.markdown(f"## 🎸 PLF预约周表 `v2.1.1`")
+st.markdown(f"## 🎸 PLF预约周表 `v2.1.2`")
 st.caption(f"数据实时同步自 Google Sheets | 当前时间: {now_sh.strftime('%Y-%m-%d %H:%M')}")
 
 # --- 修正后的动态日期逻辑 ---
@@ -270,7 +270,7 @@ with t1:
         s_t = c2.selectbox("开始时间", all_points_str)
         e_t = c3.selectbox("结束时间", all_points_str, index=min(4, len(all_points_str)-1))
         
-        if st.form_submit_button("🚀 提交预约并同步"):
+        if st.form_submit_button("提交预约并同步"):
             idx1, idx2 = all_points_str.index(s_t), all_points_str.index(e_t)
             pure_date = d[:10]
             if idx2 <= idx1:
@@ -293,9 +293,20 @@ with t2:
     u_n_cancel = st.text_input("输入预约时的姓名进行核验", key="cancel_name_input")
     
     if u_n_cancel:
-        user_df = df[df['姓名'] == u_n_cancel].copy()
+        # --- 【核心修改：动态日期过滤】 ---
+        # 从 week_dates 中提取当前主表展示的 7 个纯日期字符串 (YYYY-MM-DD)
+        # 这样无论主表是显示本周还是从今天开始的7天，取消列表都会同步
+        current_visible_dates = [d[:10] for d in week_dates]
+        
+        # 筛选条件：1. 姓名匹配 2. 日期必须在当前主表展示的日期范围内
+        user_df = df[
+            (df['姓名'] == u_n_cancel) & 
+            (df['日期'].isin(current_visible_dates))
+        ].copy()
+        # --------------------------------
+
         if user_df.empty:
-            st.info("未找到预约记录，请检查姓名是否输入正确。")
+            st.info("在当前展示的时间范围内未找到您的预约记录。")
         else:
             # 1. 数据准备
             user_df['time_dt'] = pd.to_datetime(user_df['时段'], format='%H:%M', errors='coerce')
@@ -319,19 +330,21 @@ with t2:
             if current_group:
                 merged_slots.append(current_group)
 
-            # 3. 构建显示选项字典，用于后续精准匹配
+            # 3. 构建显示选项字典
             display_options = []
-            option_to_rows = {} # 建立“选项文字”到“原始数据索引”的映射
+            option_to_rows = {} 
             
             for group in merged_slots:
-                date = group[0]['日期']
+                date_str = group[0]['日期']
+                # 找到对应的带星期文字的标签（如 2023-10-01 (周日)），保持与主表视觉一致
+                full_date_label = [d for d in week_dates if d.startswith(date_str)][0]
+                
                 start_t = group[0]['时段']
                 end_dt = group[-1]['time_dt'] + timedelta(minutes=30)
                 end_t = end_dt.strftime('%H:%M')
                 
-                label = f"{date} {start_t}-{end_t}"
+                label = f"{full_date_label} {start_t}-{end_t}"
                 display_options.append(label)
-                # 记录该大段包含的所有具体 30min 原始行（日期+时段）
                 option_to_rows[label] = [(r['日期'], r['时段']) for r in group]
             
             selected_batches = st.multiselect("选择要取消的时段 (可多选)", display_options)
@@ -343,8 +356,8 @@ with t2:
                     for batch in selected_batches:
                         rows_to_delete.extend(option_to_rows[batch])
                     
-                    # 5. 生成新数据：排除选中的行
-                    # 逻辑：只要 (日期, 时段) 不在待删列表中，且姓名对得上，就保留
+                    # 5. 生成新数据：仅排除当前选中的行
+                    # 逻辑：排除 (日期, 时段) 在删除名单中 且 姓名匹配的行
                     mask = df.apply(lambda x: (x['日期'], x['时段']) in rows_to_delete and x['姓名'] == u_n_cancel, axis=1)
                     new_df = df[~mask]
                     
@@ -352,10 +365,9 @@ with t2:
                     sheet.clear()
                     sheet.append_row(['日期', '时段', '姓名', '目的', '公开姓名', '公开目的'])
                     if not new_df.empty:
-                        # 确保只写回原始 6 列，防止出现多余数据
                         sheet.append_rows(new_df[['日期', '时段', '姓名', '目的', '公开姓名', '公开目的']].values.tolist())
                     
-                    st.success(f"已成功撤回共 {len(selected_batches)} 个预约时段。")
+                    st.success(f"已成功撤回选中的预约。")
                     st.rerun()
 with t3:
     if is_admin:
